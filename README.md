@@ -74,15 +74,9 @@
   - A stratified subset of the GSS dataset was reserved for validation.  
   - This validation set followed the same preprocessing steps as the training data to ensure consistency in evaluation.  
 
-- **Prototype**:  
-  - The dataset’s prototype includes the following key features used in the model:  
-```{r}
-    glimpse(v$prototype)
-```
-
   - The evaluation dataset used in this model card is a stratified subset of the 2022 General Social Survey (GSS). This subset was selected to maintain representativeness of the population and preserve the proportional distribution of the target variable (`grass`) across its two classes: `should be legal` and `should not be legal`.
 
-- We chose this evaluation data because it ensures:
+- I chose this evaluation data because it ensures:
   - **Representativeness**: The stratified sampling maintains the same distribution of key features and the target variable as the original dataset, making evaluation results reflective of real-world scenarios.  
   - **Consistency**: By using the same preprocessing pipeline as the training dataset, the evaluation dataset eliminates variability caused by differences in data preparation.  
   - **Fair Assessment**: The stratified split avoids bias that could arise from imbalanced or non-representative subsets, providing a reliable estimate of the model’s generalization performance.  
