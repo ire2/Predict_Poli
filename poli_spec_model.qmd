@@ -1,0 +1,662 @@
+---
+title: "Political. Spectrum Prediction Using Census Data"
+author: "Ignacio Estrada Cavero (ire2)"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+params:
+  board: !expr library(googleCloudStorageR); pins::board_gcs(bucket = "info-4940-models", prefix = "ire2/")
+  name: grass-null-model
+  version: 20241125T162318Z-c0109
+execute:
+  echo: false
+  cache: true
+editor: 
+  markdown: 
+    wrap: sentence
+format: html
+---
+```{r}
+library(future)
+plan(multisession)
+```
+# Setup
+
+```{r}
+#| label: setup
+#| load: true
+#| include: false
+
+library(gt)
+library(parsnip)
+library(randomForest)
+library(keras3)
+library(tidyverse)
+library(themis)
+library(caret)
+library(vip)
+library(tidymodels)
+library(plotly)
+library(mgcv)
+library(vetiver)
+library(pins)
+library(mgcv)
+library(GGally)
+library(ggplot2)
+library(yardstick)
+library(dplyr)
+library(reshape2)
+library(DescTools)
+library(naniar)
+
+
+
+```
+
+```{r}
+#| label: Load Training Data Library
+#| output: message
+#| cache: true
+#| source: https://gssdataexplorer.norc.org/
+
+gss_data <- read_rds("data/gss-train.rds")
+
+glimpse(gss_data)
+```
+
+
+# Data Exploration
+```{r}
+#| label: Data Exploration Function
+#| output: none
+
+create_gt_table <- function(data, title, subtitle) {
+  data %>%
+    gt() %>%
+    tab_header(
+      title = title,
+      subtitle = subtitle
+    ) %>%
+    fmt_number(
+      decimals = 2  
+    ) %>%
+    cols_align(
+      align = "center"
+    ) %>%
+    tab_options(
+      table.font.size = 12,
+      heading.title.font.size = 14,
+      heading.subtitle.font.size = 12
+    )
+}
+
+```
+
+```{r}
+#| label: Data Processing Var 
+factor_vars <- gss_data %>% 
+  select(where(is.factor))
+  
+ordered_vars <- gss_data %>% select(where(is.ordered))
+numeric_vars <- gss_data %>% select(where(is.numeric))%>%
+  select(-id)
+
+```
+
+## Numeric Summary Statistics
+```{r}
+#| label: Numeric Summary Statistics
+#| output: table
+#| cache: true
+
+numeric_summary <- numeric_vars %>%
+  summarise(across(everything(), list(mean = mean, sd = sd, min = min, max = max), na.rm = TRUE))
+
+# Create gt table
+create_gt_table(numeric_summary, "Summary of Numeric Variables", "Includes mean, SD, min, and max")
+
+```
+
+## Categorical Summary Statistics
+```{r}
+#| label: Categorical Summary Statistics
+#| output: table
+#| cache: true
+
+categorical_summary <- factor_vars %>% 
+  summarise(across(everything(), ~ n_distinct(.))) %>%
+  pivot_longer(
+    cols = everything(),
+    names_to = "Variable",
+    values_to = "Unique Levels"
+  )
+
+categorical_summary %>%
+  gt() %>%
+  tab_header(
+    title = "Summary of Categorical Variables",
+    subtitle = "Number of Unique Levels in Factor and Ordinal Variables"
+  ) %>%
+  cols_label(
+    Variable = "Variable Name",
+    `Unique Levels` = "Unique Levels"
+  ) %>%
+  fmt_number(
+    columns = `Unique Levels`,
+    decimals = 0
+  ) %>%
+  tab_style(
+    style = cell_fill(color = "lightblue"),
+    locations = cells_body(
+      columns = `Unique Levels`,
+      rows = `Unique Levels` > 5  
+    )
+  )
+
+```
+## Missing Data 
+### Missing Data Table
+
+
+```{r}
+#| label: Missing Data Table
+#| output: table
+#| cache: true
+# Create missing data table
+missing_data_table <- gss_data %>%
+  summarise(across(everything(), ~ mean(is.na(.)) * 100)) %>%
+  pivot_longer(cols = everything(), names_to = "variable", values_to = "missing_percent") %>%
+  arrange(desc(missing_percent)) 
+
+missing_data_table %>%
+  gt() %>%
+  tab_header(
+    title = "Missing Data by Variable",
+    subtitle = "Top 10 Variables with Highest Missing Percentages in Red"
+  ) %>%
+  fmt_number(
+    columns = missing_percent,
+    decimals = 2
+  ) %>%
+  cols_label(
+    variable = "Variable",
+    missing_percent = "Missing Percentage (%)"
+  ) %>%
+  tab_style(
+    style = cell_fill(color = "red"),
+    locations = cells_body(
+      columns = missing_percent,
+      rows = missing_percent > 50
+    )
+  )
+```
+
+### Missing Data Plot of Top 10
+
+```{r}
+#| label: Missing Data Plot of Top 10 Missing Features
+#| output: ggplot2
+
+ gg_miss_upset(
+  gss_data,
+  nsets = 10,
+  nintersects = 10,
+)
+
+```
+
+### Missing Data Randomn
+```{r}
+#| label: Missing Data Randomn
+
+mcar_results <- mcar_test(gss_data)
+
+mcar_table <- tibble::tibble(
+  Statistic = mcar_results$statistic,
+  df = mcar_results$df,
+  p_value = mcar_results$p.value,
+  missing_patterns = mcar_results$missing.patterns
+)
+
+mcar_table %>%
+  gt() %>%
+  tab_header(
+    title = "Results of Little's MCAR Test",
+    subtitle = "Evaluating Missing Completely At Random Hypothesis"
+  ) %>%
+  fmt_number(
+    columns = c(Statistic, p_value),
+    decimals = 2
+  ) %>%
+  fmt_number(
+    columns = c(df, missing_patterns),
+    decimals = 0
+  ) %>%
+  tab_style(
+    style = cell_fill(color = "lightgreen"),
+    locations = cells_body(
+      columns = p_value,
+      rows = p_value < 0.05
+    )
+  ) %>%
+  cols_label(
+    Statistic = "Test Statistic",
+    df = "Degrees of Freedom",
+    p_value = "P-Value",
+    missing_patterns = "Missing Patterns"
+  )
+
+```
+
+### Analysis of Missing Data
+
+Based on the plot, table, and results of Little's MCAR test, the following insights are drawn:
+
+#### 1. Missingness Is Not Completely Random (MCAR)
+- The p-value from Little’s MCAR test (`1.11e-16`) indicates that missing data is **not completely at random (MCAR)**.
+- This means that missingness in the dataset is influenced by observed or unobserved variables.
+- **Implications**:
+  - Standard methods that assume MCAR (e.g., listwise deletion) may not be appropriate.
+  - Advanced imputation techniques or models that handle systematic missingness are required.
+
+#### 2. Variables with the Highest Missingness
+- The variables with more than 50% missing data include:
+  - **`letdie1`**: 74.3% missing.
+  - **`colath`**, **`fear`**, **`colmslm`**, **`gunlaw`**, **`owngun`**, and **`hrs1`**: Each over 50% missing.
+- These variables are key contributors to missing data and require careful consideration for inclusion in the analysis.
+
+#### 3. Co-Occurrence of Missing Data
+- The **UpSet plot** highlights that certain variables tend to have missing data together:
+  - For example, **`letdie1`** frequently co-occurs with missing data in **`hrs1`**
+  - This pattern suggests that missingness may be systematic and influenced by respondent characteristics or survey design.
+
+#### 4. Data Usability
+- Variables with high missingness (e.g., **`letdie1`**, **`colath`**) may not contribute meaningful information and could be excluded unless they are critical to the analysis.
+- Variables with moderate or low missingness (e.g., **`income16`**, **`sexfreq`**) can likely be imputed without significant loss of accuracy.
+
+## Relationship Exploration 
+```{r}
+#| label: Relationship Exploration Factor 
+#| output: ggplot2
+#| cache: true
+
+factor_combinations <- expand.grid(
+  var1 = names(factor_vars),
+  var2 = names(factor_vars),
+  stringsAsFactors = FALSE
+) %>%
+  filter(var1 != var2)  
+
+
+relationship_results <- factor_combinations %>%
+  rowwise() %>%
+  mutate(
+    cramers_v = tryCatch({
+      tbl <- table(factor_vars[[var1]], factor_vars[[var2]])
+      if (all(dim(tbl) > 1)) {  
+        CramerV(tbl)
+      } else {
+        NA
+      }
+    }, error = function(e) NA)
+  ) %>%
+  ungroup()
+
+heatmap_data <- relationship_results %>%
+  select(var1, var2, cramers_v) %>%
+  pivot_wider(names_from = var2, values_from = cramers_v)
+
+
+plot_ly(
+  z = as.matrix(heatmap_data[, -1]),
+  x = colnames(heatmap_data[, -1]),
+  y = heatmap_data$var1,
+  type = "heatmap",
+  colors = colorRamp(c("lightblue", "darkblue"))
+) %>%
+  layout(
+    title = "Interactive Heatmap of Cramér's V",
+    xaxis = list(title = "Variable 2"),
+    yaxis = list(title = "Variable 1")
+  )
+
+```
+```{r}
+#| label: Relationship Exploration Factor Table
+#| output: table
+#| cache: true
+
+
+grass_relationships <- relationship_results %>%
+  filter(var1 == "grass") %>%
+  mutate(variable = ifelse(var1 == "grass", var2, var1)) %>%
+  select(variable, cramers_v) %>%
+  arrange(desc(cramers_v))
+
+grass_relationships %>%
+  gt() %>%
+  tab_header(
+    title = "Relationships with Grass",
+    subtitle = "Cramér's V Values for Grass and Other Variables"
+  ) %>%
+  fmt_number(columns = cramers_v, decimals = 2) %>%
+  cols_label(variable = "Variable", cramers_v = "Cramér's V")%>%
+  tab_style(
+    style = cell_fill(color = "lightblue"),
+    locations = cells_body(
+      columns = cramers_v,
+      rows = cramers_v > 0.20
+    )
+  )
+
+```
+
+## Relationship Exploration Numeric
+```{r}
+#| label: Relationship Exploration Numeric
+#| output: ggplot2
+#| warning: false
+#| cache: true
+
+ggpairs(numeric_vars)
+```
+
+## ANOVA analysis of significant variables 
+```{r}
+#| label: ANOVA analysis of significant variables
+#| output: table
+#| cache: true
+
+
+anova_results <- gss_data %>%
+  select(-id, -grass) %>%  
+  select_if(is.factor) %>% 
+  summarise(across(everything(), ~ {
+    if (n_distinct(.x) > 1) {
+      summary(aov(as.numeric(grass) ~ .x, data = gss_data))[[1]][["Pr(>F)"]][1]
+    } else {
+      NA 
+    }
+  })) %>%
+  pivot_longer(everything(), names_to = "variable", values_to = "p_value") %>%
+  arrange(p_value)
+
+significant_vars <- anova_results %>%
+  filter(p_value < 0.05)
+
+significant_vars %>%
+  gt() %>%
+  tab_header(
+    title = "Significant Variables from ANOVA",
+    subtitle = "Variables with p-value < 0.05"
+  ) %>%
+  fmt_number(
+    columns = p_value,
+    decimals = 2
+  ) %>%
+  cols_label(
+    variable = "Variable",
+    p_value = "P-Value"
+  ) %>%
+  tab_style(
+    style = cell_fill(color = "lightgreen"),
+    locations = cells_body(
+      columns = p_value,
+      rows = p_value < 0.05
+    )
+  )
+
+```
+
+
+
+##  Data Exploratoration Conclusion
+
+## Data Exploration Conclusion
+
+The exploratory data analysis indicates that the dataset contains significant missing data patterns, with key variables showing high levels of missingness. The results of Little's MCAR test confirm that missingness is not completely random, suggesting that it is systematically related to other variables or unobserved factors.
+
+Given the persistent issues with installing gradient boosting packages and neural networks, we pivoted to simpler and equally effective models. Random Forest was chosen as the primary method due to its ability to handle missing values, complex interactions, and categorical variables naturally. Additionally, Generalized Additive Models (GAMs) and logistic regression provide interpretable alternatives.
+
+Moving forward, we will preprocess the data, train these models, and evaluate their performance to identify the best-performing approach for predicting attitudes toward marijuana legalization (`grass`).
+
+
+
+
+#Build Model 
+
+## Models 
+###1. Random Forest
+####i. Data Preprocessing
+```{r}
+#| label: Set Up R Workflow for Random Forest Model
+#| output: none
+
+training_data <- read_rds("data/gss-train.rds")
+val_data <- read_rds("data/gss-val.rds")
+
+training_data <- training_data %>% select(-id)
+val_data <- val_data %>% select(-id)
+training_data$grass <- as.factor(training_data$grass)
+val_data$grass <- as.factor(val_data$grass)
+
+recipe <- recipe(grass ~ ., data = training_data) %>%
+  step_zv(all_predictors()) %>%
+  step_impute_median(all_numeric_predictors()) %>%
+  step_normalize(all_numeric_predictors()) %>%
+  step_impute_mode(all_nominal_predictors()) %>%
+  step_dummy(all_nominal_predictors(), -all_outcomes()) %>%
+  step_other(all_nominal_predictors(), threshold = 0.05, other = "other") %>%
+  step_smote(grass)
+  
+
+prepped <- prep(recipe, training = training_data)
+baked_train <- bake(prepped, new_data = training_data)
+baked_val <- bake(prepped, new_data = val_data)
+
+cv_folds <- vfold_cv(baked_train, v = 5, strata = grass)
+
+rf_spec <- rand_forest(
+  mode = "classification",
+  mtry = tune(),
+  trees = tune()
+) %>%
+  set_engine("ranger", importance = "permutation")
+
+rf_workflow <- workflow() %>%
+  add_model(rf_spec) %>%
+  add_formula(grass ~ .)  
+
+rf_grid <- grid_regular(
+  mtry(range = c(2, ncol(baked_train) - 1)),
+  trees(range = c(100, 1000)),
+  levels = 5
+)
+
+tune_results <- tune_grid(
+  rf_workflow,
+  resamples = cv_folds,
+  grid = rf_grid,
+  metrics = metric_set(accuracy, roc_auc)
+)
+
+```
+
+####ii. Fitting Tuned Model 
+```{r}
+#| label: Final Random Forest Model
+#| cache: true
+
+best_rf <- select_best(tune_results, metric = "accuracy")
+final_rf_workflow <- finalize_workflow(rf_workflow, best_rf)
+
+final_fit <- final_rf_workflow %>%
+  fit(data = training_data)
+
+val_predictions <- predict(final_fit, val_data, type = "prob") |>  
+  bind_cols(predict(final_fit, val_data)) |>  
+  bind_cols(val_data |> select(grass))       
+
+
+```
+####iii. Results 
+##### Metrics Summary
+```{r}
+#| label: Random Forest Model with Tuning Search Results
+#| output: table
+#| cache: true
+
+metrics_summary <- val_predictions %>%
+  metrics(truth = grass, estimate = .pred_class) %>%
+  as_tibble()
+
+metrics_summary %>%
+  gt() %>%
+  tab_header(
+    title = "Validation Metrics for Random Forest Model",
+    subtitle = "Accuracy and Kappa Results"
+  ) %>%
+  fmt_number(
+    columns = .estimate,
+    decimals = 4
+  ) %>%
+  cols_label(
+    .metric = "Metric",
+    .estimate = "Value"
+  ) %>%
+  tab_options(
+    table.font.size = 14,
+    heading.title.font.size = 18,
+    heading.subtitle.font.size = 14,
+    column_labels.font.size = 14
+  ) %>%
+  tab_style(
+    style = cell_fill(color = "lightblue"),
+    locations = cells_body(columns = .estimate, rows = .metric == "accuracy")
+  )
+
+```
+##### Confusion Matrix Plot 
+```{r}
+#| label: Confusion Matrix Plot RF
+#| cache: true 
+
+conf_mat <- val_predictions %>%
+  conf_mat(truth = grass, estimate = .pred_class)
+
+conf_mat_tbl <- as_tibble(conf_mat$table)
+
+ggplot(conf_mat_tbl, aes(x = Prediction, y = Truth, fill = n)) +
+  geom_tile(color = "black") +
+  geom_text(aes(label = n), color = "white", size = 6) +
+  scale_fill_gradient(low = "lightblue", high = "darkblue") +
+  labs(
+    title = "Confusion Matrix",
+    x = "Predicted Class",
+    y = "True Class"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 18),
+    axis.title = element_text(face = "bold")
+  )
+
+```
+
+##### ROC Curve 
+```{r}
+#| label: ROC Curve Random Forest 
+#| cache: true 
+
+roc_curve_data <- val_predictions %>%
+  roc_curve(truth = grass, `.pred_should be legal`) 
+
+ggplot(roc_curve_data, aes(x = 1 - specificity, y = sensitivity)) +
+  geom_line(size = 1, color = "blue") +
+  geom_abline(linetype = "dashed", color = "red") +
+  labs(
+    title = "ROC Curve for Random Forest Model",
+    x = "1 - Specificity",
+    y = "Sensitivity"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 18),
+    axis.title = element_text(face = "bold")
+  )
+
+```
+
+
+##### Importance Features
+```{r}
+#| label: Feature Importance Random Forest
+#| output: table
+#| cache: true
+
+vip_plot <- vip(final_fit$fit$fit)  # Extract underlying fitted model
+
+# Plot
+vip_plot + 
+  labs(title = "Feature Importance for Random Forest Model") +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 18)
+  )
+
+
+```
+
+
+
+
+####iv. Conclusion 
+
+The results show that age, wrkstat_retired, partyid, and polviews were the most influential features in the Random Forest model. However, the highest accuracy achieved was around .75. 
+
+This performance, while informative, suggests potential limitations with the current approach in R, particularly regarding the implementation of XGBoost and Neural Networks. Given these constraints, I plan to reapproach the problem using Python, which offers advanced libraries and more flexible options for implementing XGBoost and Neural Networks to improve model accuracy.
+
+###2. Python NN Model 
+```{r}
+#| label: write csv data for p
+# Save preprocessed data to CSV
+write.csv(baked_train, "data/training_data_prepped.csv", row.names = FALSE)
+write.csv(baked_val, "data/validation_data_prepped.csv", row.names = FALSE)
+```
+####i. Code
+
+![Python Code NN Model](python_scripts/nn_model.py)
+
+####ii. Results
+
+![Python NN Model Results](images/NN_ModelResults.png)
+
+###3. XGBoost Python Model
+####i. Code
+![Python Code XGBoost Model](python_scripts/xgboost_model.py)
+
+####ii. Results
+![Python XGBoost Model Results](images/XGBoostResults.png)
+
+# Pin Model 
+## Choice 
+Due to the lack of significant betterment in the Python Models we will pin the Random Forest Model as the best model for the task.
+
+## Pinning
+```{r}
+#| label: Pinning the Random Forest Model
+#| cache: true
+
+v <- vetiver_model(
+  model = final_fit,  
+  model_name = "gss-rf-model",
+  description = "Random Forest model for predicting attitudes toward marijuana legalization",
+  versioned = TRUE
+)
+
+board <- board_temp()
+board |> vetiver_pin_write(v)
+```
+
+
+  
+
+

@@ -1,0 +1,931 @@
+---
+title: "Model Card: Predicting Political Afficiliation and Attitude Toward MArijuana"
+date: today
+format:
+  typst:
+    fig-format: png
+params:
+  board: !expr library(googleCloudStorageR); pins::board_gcs(bucket = "info-4940-models", prefix = "ire2/")
+  name: gss-rf-model
+  version: 20241208T041537Z-d76b6
+  data_file: data/gss-val.rds
+  model_file: model/final_rf_model.rds
+execute:
+  echo: false
+  cache: true
+  warning: false
+  message: false
+---
+# Setup
+```{r}
+#| label: setup
+#| include: false
+#| cache: true
+
+library(skimr)
+library(gt)
+library(parsnip)
+library(randomForest)
+library(DataExplorer)
+library(keras3)
+library(tidyverse)
+library(themis)
+library(caret)
+library(vip)
+library(tidymodels)
+library(plotly)
+library(mgcv)
+library(vetiver)
+library(pins)
+library(mgcv)
+library(GGally)
+library(ggplot2)
+library(yardstick)
+library(dplyr)
+library(reshape2)
+library(DescTools)
+library(naniar)
+pinned_model <- vetiver_pin_read(board, "gss-rf-model", version = "20241208T041537Z-d76b6")
+print(pinned_model)
+
+v <- vetiver_pin_read(params$board, params$name, version = params$version)
+v_meta <- pin_meta(params$board, params$name)
+theme_set(theme_light())
+
+vetiver_prepare_docker(
+  board = board,
+  name = "gss-rf-model",
+  docker_args = list(port = 2198)  
+)
+
+```
+
+A [model card](https://doi.org/10.1145/3287560.3287596) provides brief, transparent, responsible reporting for a trained machine learning model.
+
+# Model Details
+
+- **Developed by**: Ignacio Estrada Cavero  
+- **Description**: This is a Random Forest model designed to predict whether individuals believe marijuana should be legalized. It is based on demographic, behavioral, and attitudinal data collected in the [2022 General Social Survey (GSS)](https://gss.norc.org/us/en/gss/get-documentation.html). The model utilizes 10 key features derived from survey responses to make predictions.  
+- **Feature Engineering/Data Preprocessing**: The feature engineering process included systematic handling of missing data, SMOTE for addressing class imbalance, normalization of numerical features, and one-hot encoding of categorical variables. For more detailed information, refer to the "Feature Engineering" section.  
+- **Version**: This model is identified as `r v$metadata$version` and was published on `r v_meta$created`.  
+- **Citation/License**: This model adheres to the usage terms outlined by the General Social Survey’s data-sharing policy. Contact Ignacio Estrada Cavero at <ire2@cornell.edu> for citation or licensing details.  
+- **Questions**: For any inquiries regarding this model, please contact Ignacio at <ire2@cornell.edu>.  
+
+# Intended Use
+
+- **Primary Uses**:  
+  - Sociological research to explore attitudes toward marijuana legalization.  
+  - Academic purposes for learning and demonstrating Random Forest modeling techniques.  
+  - Prototyping workflows for predicting sociological outcomes using machine learning.  
+
+- **Primary Users**:  
+  - Students and educators studying predictive modeling and sociological datasets.  
+  - Researchers aiming to understand the demographic and attitudinal factors influencing public opinions.  
+
+- **Out of Scope**:  
+  - High-stakes decision-making, such as influencing public policy or legislative actions.  
+  - Commercial use in marketing or product development without further refinement and validation.  
+
+---
+
+# Important Aspects/Factors
+
+- **Aspects or Factors Relevant to the Context of This Model**:  
+  - **Demographic**: Factors like age, gender, political affiliation, and employment status are crucial in shaping attitudes toward marijuana legalization.  
+  - **Behavioral**: Patterns in work status, political ideology, and previous voting behavior influence predictions.  
+  - **Technical**: Class imbalance in the dataset and missing data handling significantly impact the model's accuracy and reliability.  
+
+- **Evaluated Aspects**:  
+  - **Class Imbalance**: Addressed through SMOTE to balance the two predicted classes (`should be legal` and `should not be legal`).  
+  - **Feature Importance**: Identified the most influential predictors, such as political views and work status.  
+  - **Performance Metrics**: Evaluated accuracy, Cohen’s kappa, and confusion matrix to assess model effectiveness.  
+
+---
+
+# Metrics
+
+- **Metrics Used to Evaluate the Model**:  
+  - **Accuracy**: Measures the proportion of correct predictions out of all predictions made.  
+  - **Cohen’s Kappa**: Accounts for agreement beyond chance, offering insight into performance on imbalanced datasets.  
+  - **Confusion Matrix**: Summarizes prediction performance for each class to highlight areas of strength and weakness.  
+
+- **Computation**:  
+  - Metrics were calculated using a validation dataset with 5 Fold CV sampling to ensure representativeness.  
+  - The `yardstick` package in R was used to compute accuracy, Cohen’s kappa, ROC AUC and confusion matrix values.  
+
+- **Rationale for Metric Choice**:  
+  - **Accuracy** provides a straightforward measure of overall correctness.  
+  - **ROC AUC** is useful for evaluating the model's ability to discriminate between classes.
+  - **Cohen’s Kappa** offers a more nuanced perspective, especially in imbalanced datasets.  
+  - The **confusion matrix** provides detailed insights into errors and successes across classes, guiding further improvements.  
+
+---
+
+# Training Data & Evaluation Data
+
+- **Training Dataset**:  
+  - The model was trained on a subset of the 2022 General Social Survey (GSS) dataset.  
+  - Key preprocessing steps included:
+    - Imputation of missing values using median (numeric) and mode (categorical).  
+    - One-hot encoding of categorical features for compatibility with the Random Forest model.  
+    - Normalization of numeric features.  
+    - Balancing the target variable (`grass`) using SMOTE to address class imbalance.  
+
+- **Evaluation Dataset**:  
+  - A stratified subset of the GSS dataset was reserved for validation.  
+  - This validation set followed the same preprocessing steps as the training data to ensure consistency in evaluation.  
+
+- **Prototype**:  
+  - The dataset’s prototype includes the following key features used in the model:  
+```{r}
+    glimpse(v$prototype)
+```
+
+  - The evaluation dataset used in this model card is a stratified subset of the 2022 General Social Survey (GSS). This subset was selected to maintain representativeness of the population and preserve the proportional distribution of the target variable (`grass`) across its two classes: `should be legal` and `should not be legal`.
+
+- We chose this evaluation data because it ensures:
+  - **Representativeness**: The stratified sampling maintains the same distribution of key features and the target variable as the original dataset, making evaluation results reflective of real-world scenarios.  
+  - **Consistency**: By using the same preprocessing pipeline as the training dataset, the evaluation dataset eliminates variability caused by differences in data preparation.  
+  - **Fair Assessment**: The stratified split avoids bias that could arise from imbalanced or non-representative subsets, providing a reliable estimate of the model’s generalization performance.  
+
+
+
+## Evaluation Data Summary
+```{r, warning = FALSE}
+#| label: evaluation-data-load
+#| cache: true
+#| warnings: false
+suppressWarnings({
+  val_data <- read_rds(file = "data/gss-val.rds")
+  skim(val_data)
+})
+
+```
+
+###i. Factor Evaluation Data Summary
+```{r}
+#| label: evaluation-data
+#| cache: true 
+#| warnings: false
+
+skim_summary_factors <- skim(val_data) %>%
+  filter(skim_type == "factor") %>%
+  select(
+    Variable = skim_variable,
+    Completeness = complete_rate,
+    `Unique Levels` = factor.n_unique,
+    `Top Counts` = factor.top_counts
+  )
+
+skim_summary_factors %>%
+  gt() %>%
+  tab_header(
+    title = "Summary of Factor Variables",
+    subtitle = "Overview of Categorical Data in `val_data`"
+  )
+```
+###ii. Numeric Evaluation Data Summary
+
+```{r}
+skim_summary_numeric <- skim(val_data) %>%
+  filter(skim_type == "numeric") %>%
+  select(
+    Variable = skim_variable,
+    Completeness = complete_rate,
+    Mean = numeric.mean,
+    SD = numeric.sd,
+    Min = numeric.p0,
+    Median = numeric.p50,
+    Max = numeric.p100
+  )
+
+skim_summary_numeric %>%
+  gt() %>%
+  tab_header(
+    title = "Summary of Numeric Variables",
+    subtitle = "Overview of Numerical Data in `val_data`"
+  )
+
+```
+
+## Evaluation Data Report 
+
+The following report provides a detailed overview of the evaluation dataset, including data distributions, missing values, and summary statistics. This information is crucial for understanding the characteristics of the data used to evaluate the model's performance.
+```{r}
+#| label: evaluation-data-report
+#| cache: true
+#| warnings: false 
+
+create_report(val_data, output_file = "data/eval-file.html")
+```
+![Evaluation Report of Validation Data](eval-file.html)
+
+##ii. Evaluation Data Distributions
+### Relationship Exploration 
+
+The interactive heatmap below displays the relationship between different categorical variables in the evaluation dataset using Cramér's V statistic. This visualization helps identify potential associations between variables, guiding feature selection and model interpretation.
+```{r}
+#| label: Relationship Exploration Factor 
+#| output: ggplot2
+#| cache: true
+#| warning: false
+#| include: true
+
+factor_vars <- val_data %>% 
+  select(where(is.factor))
+
+factor_combinations <- expand.grid(
+  var1 = names(factor_vars),
+  var2 = names(factor_vars),
+  stringsAsFactors = FALSE
+) %>%
+  filter(var1 != var2)  
+
+
+relationship_results <- factor_combinations %>%
+  rowwise() %>%
+  mutate(
+    cramers_v = tryCatch({
+      tbl <- table(factor_vars[[var1]], factor_vars[[var2]])
+      if (all(dim(tbl) > 1)) {  
+        CramerV(tbl)
+      } else {
+        NA
+      }
+    }, error = function(e) NA)
+  ) %>%
+  ungroup()
+
+heatmap_data <- relationship_results %>%
+  select(var1, var2, cramers_v) %>%
+  pivot_wider(names_from = var2, values_from = cramers_v)
+
+
+plot_ly(
+  z = as.matrix(heatmap_data[, -1]),
+  x = colnames(heatmap_data[, -1]),
+  y = heatmap_data$var1,
+  type = "heatmap",
+  colors = colorRamp(c("lightblue", "darkblue"))
+) %>%
+  layout(
+    title = "Interactive Heatmap of Cramér's V",
+    xaxis = list(title = "Variable 2"),
+    yaxis = list(title = "Variable 1")
+  )
+
+```
+### Missing Data Table 
+
+Below is a table showing the percentage of missing values for each variable in the evaluation dataset. Variables with missing percentages above 50% are highlighted in red.
+```{r}
+#| label: Missing Data Table
+#| output: table
+#| warning: false
+#| cache: true
+#| include: true
+# Create missing data table
+missing_data_table <- val_data %>%
+  summarise(across(everything(), ~ mean(is.na(.)) * 100)) %>%
+  pivot_longer(cols = everything(), names_to = "variable", values_to = "missing_percent") %>%
+  arrange(desc(missing_percent)) 
+
+missing_data_table %>%
+  gt() %>%
+  tab_header(
+    title = "Missing Data by Variable",
+    subtitle = "Top 10 Variables with Highest Missing Percentages in Red"
+  ) %>%
+  fmt_number(
+    columns = missing_percent,
+    decimals = 2
+  ) %>%
+  cols_label(
+    variable = "Variable",
+    missing_percent = "Missing Percentage (%)"
+  ) %>%
+  tab_style(
+    style = cell_fill(color = "red"),
+    locations = cells_body(
+      columns = missing_percent,
+      rows = missing_percent > 50
+    )
+  )
+```
+### Missing Data Upset 
+
+The UpSet plot below visualizes the intersection of missing values across the top 10 features with the highest missing percentages. This plot provides insights into the patterns of missing data across different variables, helping identify potential relationships between missingness in different features.
+```{r}
+#| label: Missing Data Plot of Top 10 Missing Features
+#| output: ggplot2
+#| include: true
+#| warning: false
+
+ gg_miss_upset(
+  val_data,
+  nsets = 10,
+  nintersects = 10,
+)
+
+
+```
+
+### Missing Data Randomness 
+
+The MCAR ytest demonstrates that missingness in the evaluation dataset is not completely at random (MCAR). The test statistic and p-value indicate that the missing data patterns are significantly different from random, suggesting that the missingness may be related to the observed data. Due to this non-random missingness, imputation methods should be carefully considered to avoid bias in the analysis.
+```{r}
+#| label: Missing Data Randomn
+#| cache: true
+#| warning: false
+#| include: true
+
+mcar_results <- mcar_test(val_data)
+
+mcar_table <- tibble::tibble(
+  Statistic = mcar_results$statistic,
+  df = mcar_results$df,
+  p_value = mcar_results$p.value,
+  missing_patterns = mcar_results$missing.patterns
+)
+
+mcar_table %>%
+  gt() %>%
+  tab_header(
+    title = "Results of Little's MCAR Test",
+    subtitle = "Evaluating Missing Completely At Random Hypothesis"
+  ) %>%
+  fmt_number(
+    columns = c(Statistic, p_value),
+    decimals = 2
+  ) %>%
+  fmt_number(
+    columns = c(df, missing_patterns),
+    decimals = 0
+  ) %>%
+  tab_style(
+    style = cell_fill(color = "lightgreen"),
+    locations = cells_body(
+      columns = p_value,
+      rows = p_value < 0.05
+    )
+  ) %>%
+  cols_label(
+    Statistic = "Test Statistic",
+    df = "Degrees of Freedom",
+    p_value = "P-Value",
+    missing_patterns = "Missing Patterns"
+  )
+
+```
+
+
+# Quantitative analyses {.tabset}
+
+```{r}
+#| label: model-training
+#| cache: true
+#| warning: false
+
+
+## compute predictions for your evaluation data
+## load packages needed for prediction:
+
+final_fit <- pinned_model
+
+
+pred_class <- predict(final_fit, val_data, type = "class")
+pred_prob <- predict(final_fit, val_data, type = "prob")
+val_predictions <- bind_cols(pred_class, pred_prob, val_data)
+                              
+
+```
+
+## Overall model performance
+
+```{r}
+#| label: model-performance
+#| cache: true
+
+metrics_summary <- val_predictions %>%
+  metrics(truth = grass, estimate = .pred_class) %>%
+  as_tibble()
+
+metrics_summary %>%
+  gt() %>%
+  tab_header(
+    title = "Validation Metrics for Random Forest Model",
+    subtitle = "Accuracy and Kappa Results"
+  ) %>%
+  fmt_number(
+    columns = .estimate,
+    decimals = 4
+  ) %>%
+  cols_label(
+    .metric = "Metric",
+    .estimate = "Value"
+  ) %>%
+  tab_options(
+    table.font.size = 14,
+    heading.title.font.size = 18,
+    heading.subtitle.font.size = 14,
+    column_labels.font.size = 14
+  ) %>%
+  tab_style(
+    style = cell_fill(color = "lightblue"),
+    locations = cells_body(columns = .estimate, rows = .metric == "accuracy")
+  )
+
+```
+
+## Disaggregated model performance
+```{r}
+library(gt)
+
+generate_disaggregated_gt <- function(data, group_var, pred_var, truth_var, title, subtitle) {
+  # Ensure the grouping variable is a factor for better readability
+  data <- data %>%
+    mutate({{ group_var }} := as.factor({{ group_var }}))
+  
+  # Compute the most likely response and agreement rate
+  summary_data <- data %>%
+    group_by({{ group_var }}) %>%
+    summarise(
+      most_likely = names(which.max(table({{ pred_var }}))),  # Most frequent prediction
+      agreement_rate = mean({{ pred_var }} == {{ truth_var }}, na.rm = TRUE) * 100  # Agreement rate as percentage
+    ) %>%
+    ungroup()
+
+  # Create a GT table
+  summary_data %>%
+    gt() %>%
+    tab_header(
+      title = title,
+      subtitle = subtitle
+    ) %>%
+    cols_label(
+      {{ group_var }} := "Group",
+      most_likely = "Most Likely Response",
+      agreement_rate = "Agreement Rate (%)"
+    ) %>%
+    fmt_number(
+      columns = agreement_rate,
+      decimals = 1
+    ) %>%
+    tab_style(
+      style = cell_fill(color = "lightblue"),
+      locations = cells_body(
+        columns = agreement_rate,
+        rows = agreement_rate > 75
+      )
+    ) %>%
+    tab_style(
+      style = cell_text(weight = "bold"),
+      locations = cells_body(
+        columns = most_likely,
+        rows = most_likely == "should be legal"
+      )
+    )
+}
+
+```
+
+
+###i. Age 
+
+#### Accuracy by Age Group
+```{r}
+#| label: Age Group
+#| cache: true
+val_predictions <- val_predictions %>%
+  mutate(
+    age_group = cut(
+      age,
+      breaks = c(0, 25, 35, 50, Inf),
+      labels = c("18-25", "26-35", "36-50", "50+"),
+      right = FALSE
+    )
+  )
+
+temp <- val_predictions %>%
+  group_by(age_group) %>%
+  summarise(
+    accuracy = mean(grass == .pred_class, na.rm = TRUE)  
+  )
+
+ggplot(temp, aes(x = age_group, y = accuracy)) +
+  geom_bar(stat = "identity", fill = "skyblue", color = "black") +
+  theme_minimal() +
+  labs(
+    title = "Model Accuracy by Age Group",
+    x = "Age Group",
+    y = "Accuracy"
+  )
+
+```
+#### Most Likely Response
+```{r}
+#| label: Age Group Response
+#| cache: true
+
+generate_disaggregated_gt(
+  data = val_predictions,
+  group_var = age_group,
+  pred_var = .pred_class,
+  truth_var = grass,
+  title = "Most Likely Predicted Response by Age Group",
+  subtitle = "With Agreement Rate"
+)
+```
+
+
+###ii. Zodiac
+
+#### Accuracy by Zodiac
+```{r}
+#| label: Zodiac
+#| cache: true
+temp <- val_predictions %>%
+  group_by(zodiac) %>%
+  summarise(
+    accuracy = mean(grass == .pred_class, na.rm = TRUE)  # Compare true vs predicted class
+  )
+
+ggplot(temp, aes(x = zodiac, y = accuracy)) +
+  geom_bar(stat = "identity", fill = "skyblue", color = "black") +
+  theme_minimal() +
+  labs(
+    title = "Model Accuracy by Zodiac",
+    x = "Zodiac",
+    y = "Accuracy"
+  )+
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1)  
+  )
+```
+#### Most Likely Response
+```{r}
+#| label: Zodiac Response 
+#| cache: true
+
+generate_disaggregated_gt(
+  data = val_predictions,
+  group_var = zodiac,
+  pred_var = .pred_class,
+  truth_var = grass,
+  title = "Most Likely Predicted Response by Zodiac",
+  subtitle = "With Agreement Rate"
+)
+```
+
+
+###iii. Race
+
+#### Accuracy by Race
+```{r}
+#| label: Race 
+#| cache: true
+temp <- val_predictions %>%
+  group_by(race) %>%
+  summarise(
+    accuracy = mean(grass == .pred_class, na.rm = TRUE) 
+  )
+
+ggplot(temp, aes(x = race, y = accuracy)) +
+  geom_bar(stat = "identity", fill = "skyblue", color = "black") +
+  theme_minimal() +
+  labs(
+    title = "Model Accuracy by Race",
+    x = "Race",
+    y = "Accuracy"
+  )
+```
+#### Most Likely Response
+```{r}
+#| label: Race Pred
+#| cache: true 
+
+generate_disaggregated_gt(
+  data = val_predictions,
+  group_var = race,
+  pred_var = .pred_class,
+  truth_var = grass,
+  title = "Most Likely Predicted Response by Race",
+  subtitle = "With Agreement Rate"
+)
+```
+
+###iv. Sex
+
+#### Accuracy by Sex 
+```{r}
+#| label: Sex 
+#| cache: true
+temp <- val_predictions %>%
+  group_by(sex) %>%
+  summarise(
+    accuracy = mean(grass == .pred_class, na.rm = TRUE)  
+  )
+
+ggplot(temp, aes(x = sex, y = accuracy)) +
+  geom_bar(stat = "identity", fill = "skyblue", color = "black") +
+  theme_minimal() +
+  labs(
+    title = "Model Accuracy by Sex",
+    x = "Sex",
+    y = "Accuracy"
+  )
+```
+#### Most Likely Response
+```{r}
+#| label: Most Likely Sex
+#| cache: true
+
+generate_disaggregated_gt(
+  data = val_predictions,
+  group_var = sex,
+  pred_var = .pred_class,
+  truth_var = grass,
+  title = "Most Likely Predicted Response by Sex",
+  subtitle = "With Agreement Rate"
+)
+
+```
+
+
+###v. Degree 
+#### Accuracy by Degree
+```{r}
+#| label: Degree Freq 
+#| cache: true
+temp <- val_predictions %>%
+  group_by(degree) %>%
+  summarise(
+    accuracy = mean(grass == .pred_class, na.rm = TRUE)  
+  )
+
+ggplot(temp, aes(x = degree, y = accuracy)) +
+  geom_bar(stat = "identity", fill = "skyblue", color = "black") +
+  theme_minimal() +
+  labs(
+    title = "Model Accuracy by Degree",
+    x = "Degree",
+    y = "Accuracy"
+  )
+```
+#### Most Likely Response
+```{r}
+#| label: Degree Response
+generate_disaggregated_gt(
+  data = val_predictions,
+  group_var = degree,
+  pred_var = .pred_class,
+  truth_var = grass,
+  title = "Most Likely Predicted Response by Degree",
+  subtitle = "With Agreement Rate")
+```
+
+###vi. Region
+#### Accuracy by Region
+```{r}
+#| label: Region 
+#| cache: true
+temp <- val_predictions %>%
+  group_by(region) %>%
+  summarise(
+    accuracy = mean(grass == .pred_class, na.rm = TRUE) 
+  )
+
+ggplot(temp, aes(x = region, y = accuracy)) +
+  geom_bar(stat = "identity", fill = "skyblue", color = "black") +
+  theme_minimal() +
+  labs(
+    title = "Model Accuracy by Region",
+    x = "Region",
+    y = "Accuracy"
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1)  
+  )
+
+```
+
+#### Most Likely Response 
+```{r}
+generate_disaggregated_gt(
+  data = val_predictions,
+  group_var = region,
+  pred_var = .pred_class,
+  truth_var = grass,
+  title = "Most Likely Predicted Response by Region",
+  subtitle = "With Agreement Rate")
+```
+
+###vii. Political Views 
+#### Accuracy by Political Views
+```{r}
+#| label: Political Views
+#| cache: true
+temp <- val_predictions %>%
+  group_by(polviews) %>%
+  summarise(
+    accuracy = mean(grass == .pred_class, na.rm = TRUE) 
+  )
+
+ggplot(temp, aes(x = polviews, y = accuracy)) +
+  geom_bar(stat = "identity", fill = "skyblue", color = "black") +
+  theme_minimal() +
+  labs(
+    title = "Model Accuracy by Political Views",
+    x = "Political Views",
+    y = "Accuracy"
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1)  
+  )
+```
+#### Most Likely Response
+```{r}
+#| label: Political Views Response
+#| cache: true
+
+generate_disaggregated_gt(
+  data = val_predictions,
+  group_var = polviews,
+  pred_var = .pred_class,
+  truth_var = grass,
+  title = "Most Likely Predicted Response by Political Views",
+  subtitle = "With Agreement Rate"
+)
+```
+
+###viii. Gun Ownership
+
+#### Accuracy by Gun Ownership
+```{r}
+#| label: Gun Ownership
+#| cache: true
+temp <- val_predictions %>%
+  group_by(owngun) %>%
+  summarise(
+    accuracy = mean(grass == .pred_class, na.rm = TRUE) 
+  )
+
+ggplot(temp, aes(x = owngun, y = accuracy)) +
+  geom_bar(stat = "identity", fill = "skyblue", color = "black") +
+  theme_minimal() +
+  labs(
+    title = "Model Accuracy by Gun Ownership",
+    x = "Gun Ownership",
+    y = "Accuracy"
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1)  
+  )
+```
+#### Most Likely Response
+```{r}
+#| label: Gun Ownership Response
+#| cache: true
+
+generate_disaggregated_gt(
+  data = val_predictions,
+  group_var = owngun,
+  pred_var = .pred_class,
+  truth_var = grass,
+  title = "Most Likely Predicted Response by Gun Ownership",
+  subtitle = "With Agreement Rate"
+)
+```
+
+###ix. Sexual Frequency 
+
+#### Accuracy by Sexual Frequency
+```{r}
+temp <- val_predictions %>%
+  group_by(sexfreq) %>%
+  summarise(
+    accuracy = mean(grass == .pred_class, na.rm = TRUE) 
+  )
+
+ggplot(temp, aes(x = sexfreq, y = accuracy)) +
+  geom_bar(stat = "identity", fill = "skyblue", color = "black") +
+  theme_minimal() +
+  labs(
+    title = "Model Accuracy by Sexual Frequency",
+    x = "Sexual Frequency",
+    y = "Accuracy"
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1)  
+  )
+```
+#### Most Likely Response
+
+```{r}
+#| label: Sexual Frequency Response
+#| cache: true
+
+generate_disaggregated_gt(
+  data = val_predictions,
+  group_var = sexfreq,
+  pred_var = .pred_class,
+  truth_var = grass,
+  title = "Most Likely Predicted Response by Sexual Frequency",
+  subtitle = "With Agreement Rate"
+)
+```
+
+
+## Visualize model performance
+###i. Confusion Matrix Plot 
+```{r}
+#| label: Confusion Matrix Plot RF
+#| cache: true 
+#| warning: false
+#| include: true
+
+conf_mat <- val_predictions %>%
+  conf_mat(truth = grass, estimate = .pred_class)
+
+conf_mat_tbl <- as_tibble(conf_mat$table)
+
+ggplot(conf_mat_tbl, aes(x = Prediction, y = Truth, fill = n)) +
+  geom_tile(color = "black") +
+  geom_text(aes(label = n), color = "white", size = 6) +
+  scale_fill_gradient(low = "lightblue", high = "darkblue") +
+  labs(
+    title = "Confusion Matrix",
+    x = "Predicted Class",
+    y = "True Class"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 18),
+    axis.title = element_text(face = "bold")
+  )
+
+```
+
+###ii. ROC AUC 
+```{r}
+#| label: ROC Curve Random Forest 
+#| include: true
+#| cache: true 
+#| warning: false
+
+roc_curve_data <- val_predictions %>%
+  roc_curve(truth = grass, `.pred_should be legal`) 
+
+ggplot(roc_curve_data, aes(x = 1 - specificity, y = sensitivity)) +
+  geom_line(size = 1, color = "blue") +
+  geom_abline(linetype = "dashed", color = "red") +
+  labs(
+    title = "ROC Curve for Random Forest Model",
+    x = "1 - Specificity",
+    y = "Sensitivity"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 18),
+    axis.title = element_text(face = "bold")
+  )
+```
+
+###iii. Feature Importance Plot
+
+```{r}
+#| label: Feature Importance Random Forest
+#| output: table
+#| cache: true
+#| include: true
+#| warning: false
+
+vip_plot <- vip(final_fit$fit$fit)  
+
+vip_plot + 
+  labs(title = "Feature Importance for Random Forest Model") +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 18)
+  )
+
+
+```
+
+
+### **Ethical Considerations**
+
+1. **Bias and Fairness**:  
+   Predictions may reflect biases in the dataset, particularly with sensitive features like race and political views. Regular fairness audits are recommended to mitigate unintended harm.
+
+2. **Intended Use**:  
+   The model is designed for academic and sociological research, not for high-stakes decisions or commercial applications.
+
+3. **Misuse**:  
+   The model must not be applied in contexts where its predictions could harm individuals or groups without rigorous validation.
+
+---
+
+### **Caveats and Recommendations**
+   - **Dataset Bias**: The GSS dataset may not fully represent all groups.  
+   - **Imputation Uncertainty**: Imputed missing data introduces potential noise.
