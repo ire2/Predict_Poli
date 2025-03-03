@@ -1,6 +1,7 @@
+## API for Predicting Attitudes Towards Marijuana 
 A [model card](https://doi.org/10.1145/3287560.3287596) provides brief, transparent, responsible reporting for a trained machine learning model.
 
-# Model Details
+## Model Details
 
 - **Developed by**: Ignacio Estrada Cavero  
 - **Description**: This is a Random Forest model designed to predict whether individuals believe marijuana should be legalized. It is based on demographic, behavioral, and attitudinal data collected in the [2022 General Social Survey (GSS)](https://gss.norc.org/us/en/gss/get-documentation.html). The model utilizes 10 key features derived from survey responses to make predictions.  
@@ -9,7 +10,7 @@ A [model card](https://doi.org/10.1145/3287560.3287596) provides brief, transpar
 - **Citation/License**: This model adheres to the usage terms outlined by the General Social Survey’s data-sharing policy. Contact Ignacio Estrada Cavero at <ire2@cornell.edu> for citation or licensing details.  
 - **Questions**: For any inquiries regarding this model, please contact Ignacio at <ire2@cornell.edu>.  
 
-# Intended Use
+## Intended Use
 
 - **Primary Uses**:  
   - Sociological research to explore attitudes toward marijuana legalization.  
@@ -26,7 +27,7 @@ A [model card](https://doi.org/10.1145/3287560.3287596) provides brief, transpar
 
 ---
 
-# Important Aspects/Factors
+## Important Aspects/Factors
 
 - **Aspects or Factors Relevant to the Context of This Model**:  
   - **Demographic**: Factors like age, gender, political affiliation, and employment status are crucial in shaping attitudes toward marijuana legalization.  
@@ -40,7 +41,7 @@ A [model card](https://doi.org/10.1145/3287560.3287596) provides brief, transpar
 
 ---
 
-# Metrics
+## Metrics
 
 - **Metrics Used to Evaluate the Model**:  
   - **Accuracy**: Measures the proportion of correct predictions out of all predictions made.  
@@ -59,7 +60,7 @@ A [model card](https://doi.org/10.1145/3287560.3287596) provides brief, transpar
 
 ---
 
-# Training Data & Evaluation Data
+## Training Data & Evaluation Data
 
 - **Training Dataset**:  
   - The model was trained on a subset of the 2022 General Social Survey (GSS) dataset.  
