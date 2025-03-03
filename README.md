@@ -1,5 +1,5 @@
-## API for Predicting Attitudes Towards Marijuana 
-A [model card](https://doi.org/10.1145/3287560.3287596) provides brief, transparent, responsible reporting for a trained machine learning model.
+# API for Predicting Attitudes Towards Marijuana 
+
 
 ## Model Details
 
